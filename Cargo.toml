@@ -1,0 +1,19 @@
+[package]
+name = "aleks_cypher"
+version = "3.0.0"
+authors = ["AlekssusDev"]
+edition = "2021"
+description = "Googol-powered file encryption utility with Rayo-KDF and Ackermann-RNG."
+license = "GPL-3.0-only"
+
+[dependencies]
+egui = "0.27"
+eframe = "0.27"
+rfd = "0.14"
+aes-gcm = "0.10"
+argon2 = { version = "0.5", features = ["password-hash"] }
+rand = "0.8"
+sha2 = "0.10"
+hkdf = "0.12"
+uuid = { version = "1", features = ["v4"] }
+zeroize = { version = "1", features = ["alloc", "derive"] }
