@@ -44,6 +44,35 @@ cargo build --release
 Исполняемый файл появится в target/release/aleks_cypher (или .exe на Windows).
 На Windows также можно запустить build.bat.
 
+### Зависимости для Linux
+
+На Linux для сборки GUI потребуются dev-пакеты X11 и OpenGL. Выполните в терминале:
+
+#### Ubuntu / Debian / Mint
+```bash
+sudo apt update
+sudo apt install build-essential libx11-dev libxi-dev libgl1-mesa-dev libxrandr-dev \
+  libx11-xcb-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+```
+
+#### Fedora / RHEL
+```bash
+sudo dnf install gcc-c++ libx11-devel libxi-devel mesa-libGL-devel libXrandr-devel \
+  libxcb-devel
+```
+
+#### Arch Linux / Manjaro
+```bash
+sudo pacman -S base-devel libx11 libxi mesa libxrandr libxcb
+```
+
+#### openSUSE
+```bash
+sudo zypper install gcc-c++ libx11-devel libxi-devel Mesa-libGL-devel libXrandr-devel \
+  libxcb-devel
+```
+
+
 ## 🚀 Использование
 1. Запустите приложение, дождитесь калибровки Rayo‑машины (≈1 секунда).
 2. Перетащите файл в окно или выберите через кнопку «Обзор».
