@@ -1,7 +1,7 @@
 # AleksCypher
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-3.0.0-brightgreen.svg)](https://github.com/AlekssusDev/AleksCypher/releases)
+[![Version](https://img.shields.io/badge/version-3.1.0-brightgreen.svg)](https://github.com/AlekssusDev/AleksCypher/releases)
 [![Unsafe](https://img.shields.io/badge/unsafe-forbidden-red.svg)](https://doc.rust-lang.org/nomicon/)
 
 **Утилита для шифрования файлов с использованием гугологических примитивов на Rust.**
@@ -17,8 +17,9 @@ AleksCypher — это инструмент для шифрования файл
 - **Ackermann‑RNG** — нелинейный генератор nonce на основе функции Аккермана.
 - **Rayo‑KDF** — последовательная функция, устойчивая к распараллеливанию на GPU и ASIC.
 - **Googol Padding** — три режима сокрытия реального размера файла (экономичный, стандартный, параноидальный).
-- **Защита от атак повторения (Anti‑replay)** — предотвращает подмену файла его устаревшей версией.
 - **HKDF (RFC 5869)** — стандартизированное разделение и деривация ключей.
+- **Стеганография** — скрытие зашифрованного файла внутри PNG (интерливинг пикселей через ChaCha20, сигнатура `ACYP`).
+- **ProtectedBuffer** — ключи и пароли блокируются в RAM (mlock / VirtualLock) и не выгружаются в swap.
 - **Zeroizing** — полное гарантированное обнуление криптографических секретов в памяти.
 - **100% Safe Rust** — чистый безопасный код без использования `unsafe`-блоков.
 - **Графический интерфейс (GUI)** — минималистичное оконное приложение с поддержкой drag-and-drop.
@@ -44,52 +45,49 @@ cargo build --release
 Исполняемый файл появится в target/release/aleks_cypher (или .exe на Windows).
 На Windows также можно запустить build.bat.
 
-### Зависимости для Linux
-
+## Зависимости для Linux
 На Linux для сборки GUI потребуются dev-пакеты X11 и OpenGL. Выполните в терминале:
 
-#### Ubuntu / Debian / Mint
-```bash
+### Ubuntu / Debian / Mint
+```
 sudo apt update
 sudo apt install build-essential libx11-dev libxi-dev libgl1-mesa-dev libxrandr-dev \
   libx11-xcb-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+  ```
+### Fedora / RHEL
 ```
-
-#### Fedora / RHEL
-```bash
 sudo dnf install gcc-c++ libx11-devel libxi-devel mesa-libGL-devel libXrandr-devel \
   libxcb-devel
+  ```
+### Arch Linux / Manjaro
 ```
-
-#### Arch Linux / Manjaro
-```bash
 sudo pacman -S base-devel libx11 libxi mesa libxrandr libxcb
 ```
-
-#### openSUSE
-```bash
+### openSUSE
+```
 sudo zypper install gcc-c++ libx11-devel libxi-devel Mesa-libGL-devel libXrandr-devel \
   libxcb-devel
-```
-
-
+  ```
+  
 ## 🚀 Использование
 1. Запустите приложение, дождитесь калибровки Rayo‑машины (≈1 секунда).
 2. Перетащите файл в окно или выберите через кнопку «Обзор».
 3. Введите пароль.
-4. При шифровании выберите уровень сокрытия размера и anti‑replay защиту.
+4. При шифровании выберите уровень сокрытия размера и (опционально) включите стеганографию.
 5. Нажмите «Зашифровать» или «Расшифровать».
-6. Зашифрованные файлы получают расширение .acyph.
 
-## 📜 Формат файла
+Обычный режим: выходной файл получит расширение .acyph.
+Режим стеганографии: зашифрованный файл будет спрятан внутри выбранного PNG‑изображения. Временный .acyph автоматически удаляется после успешного встраивания.
+
+📜 Формат файла
 Каждый .acyph файл состоит из:
 
-```bash
+```text
 [1 байт версии] [1 байт флагов] [16 байт соли] [12 байт nonce]
 [40 байт манифест] [зашифрованные данные]
 ```
-
 Манифест защищён AES‑GCM как дополнительные аутентифицированные данные (AAD). В манифесте хранятся исходная длина данных, временная метка, UUID сессии и количество шагов Rayo‑KDF.
+Текущая версия контейнера: 4.
 
 ## Лицензия
 GNU General Public License v3.0. Подробнее в файле LICENSE.
