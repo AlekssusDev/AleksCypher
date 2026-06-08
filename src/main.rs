@@ -1,13 +1,12 @@
 // AleksCypher (c) 2026 AlekssusDev
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License.
+// Licensed under GPL v3.0.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod crypto;
+mod stego;
 
-use crypto::{encrypt_file, decrypt_file, calibrate_rayo_steps};
+use crypto::{encrypt_file, decrypt_file, calibrate_rayo_steps, ProtectedBuffer};
 use eframe::egui;
 use egui::Color32;
 use rfd::FileDialog;
@@ -16,11 +15,54 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
+
+fn render_3d_star(ui: &mut egui::Ui, ctx: &egui::Context) {
+    ctx.request_repaint();
+    let time = ctx.input(|i| i.time) as f32 * 1.5;
+    let w = 40; let h = 20;
+    let mut buf = vec![vec![' '; w]; h];
+    let verts = [
+        [0.0, 1.0, 0.0],
+        [0.0,-1.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [-1.0,0.0, 0.0],
+        [0.0, 0.0, 0.5],
+        [0.0, 0.0,-0.5],
+    ];
+    let edges = [
+        (0,2),(0,3),(0,4),(0,5),
+        (1,2),(1,3),(1,4),(1,5),
+    ];
+    for &(u,v) in &edges {
+        let p1 = verts[u]; let p2 = verts[v];
+        for s in 0..=10 {
+            let t = s as f32 / 10.0;
+            let mut x = p1[0] + (p2[0] - p1[0]) * t;
+            let mut y = p1[1] + (p2[1] - p1[1]) * t;
+            let mut z = p1[2] + (p2[2] - p1[2]) * t;
+            let nx = x * time.cos() - z * time.sin();
+            let nz = x * time.sin() + z * time.cos();
+            x = nx; z = nz;
+            let ny = y * time.cos() - z * time.sin();
+            y = ny;
+            let sx = ((x * 15.0) + (w as f32 / 2.0)) as i32;
+            let sy = ((y * 8.0) + (h as f32 / 2.0)) as i32;
+            if sx >= 0 && sx < w as i32 && sy >= 0 && sy < h as i32 {
+                buf[sy as usize][sx as usize] = if z > 0.2 { '#' } else { '*' };
+            }
+        }
+    }
+    let art: String = buf.iter().map(|r| r.iter().collect::<String>()).collect::<Vec<_>>().join("\n");
+    ui.centered_and_justified(|ui| {
+        ui.label(egui::RichText::new(art).font(egui::FontId::monospace(12.0)).color(Color32::from_rgb(186, 85, 211)));
+    });
+}
 
 struct TaskResult {
     message: String,
     preview: String,
+    rayo_steps: Option<u64>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -39,10 +81,11 @@ struct AppState {
     pending_result: Arc<Mutex<Option<Result<TaskResult, String>>>>,
     progress: f32,
     padding_level: u8,
-    anti_replay: bool,
     rayo_steps: u64,
     calibration_done: bool,
     drag_hover: bool,
+    use_stego: bool,
+    stego_path: Option<PathBuf>,
 }
 
 impl Default for AppState {
@@ -57,10 +100,11 @@ impl Default for AppState {
             pending_result: Arc::new(Mutex::new(None)),
             progress: 0.0,
             padding_level: 3,
-            anti_replay: true,
             rayo_steps: 10_000_000,
             calibration_done: false,
             drag_hover: false,
+            use_stego: false,
+            stego_path: None,
         }
     }
 }
@@ -74,41 +118,10 @@ impl AppState {
             *pending.lock().unwrap() = Some(Ok(TaskResult {
                 message: format!("Rayo calibrated: {} steps", steps),
                 preview: String::new(),
+                rayo_steps: Some(steps),
             }));
         });
     }
-}
-
-fn render_3d_star(ui: &mut egui::Ui, ctx: &egui::Context) {
-    ctx.request_repaint();
-    let time = ctx.input(|i| i.time) as f32 * 1.5;
-    let w = 40; let h = 20;
-    let mut buf = vec![vec![' '; w]; h];
-    let verts = [[0.0,1.0,0.0],[0.0,-1.0,0.0],[1.0,0.0,0.0],[-1.0,0.0,0.0],[0.0,0.0,0.5],[0.0,0.0,-0.5]];
-    let edges = [(0,2),(0,3),(0,4),(0,5),(1,2),(1,3),(1,4),(1,5)];
-    for &(u,v) in &edges {
-        let p1 = verts[u]; let p2 = verts[v];
-        for s in 0..=10 {
-            let t = s as f32/10.0;
-            let mut x = p1[0]+(p2[0]-p1[0])*t;
-            let mut y = p1[1]+(p2[1]-p1[1])*t;
-            let mut z = p1[2]+(p2[2]-p1[2])*t;
-            let nx = x*time.cos() - z*time.sin();
-            let nz = x*time.sin() + z*time.cos();
-            x = nx; z = nz;
-            let ny = y*time.cos() - z*time.sin();
-            y = ny;
-            let sx = ((x*15.0)+(w as f32/2.0)) as i32;
-            let sy = ((y*8.0)+(h as f32/2.0)) as i32;
-            if sx>=0 && sx<w as i32 && sy>=0 && sy<h as i32 {
-                buf[sy as usize][sx as usize] = if z>0.2 {'#'} else {'*'};
-            }
-        }
-    }
-    let art: String = buf.iter().map(|r| r.iter().collect::<String>()).collect::<Vec<_>>().join("\n");
-    ui.centered_and_justified(|ui| {
-        ui.label(egui::RichText::new(art).font(egui::FontId::monospace(12.0)).color(Color32::from_rgb(186,85,211)));
-    });
 }
 
 impl eframe::App for AppState {
@@ -129,10 +142,8 @@ impl eframe::App for AppState {
         if let Some(res) = self.pending_result.lock().unwrap().take() {
             match res {
                 Ok(task) => {
-                    let is_calib = task.message.contains("Rayo calibrated");
-                    if is_calib {
-                        self.rayo_steps = task.message.split_whitespace().last()
-                            .and_then(|s| s.parse().ok()).unwrap_or(10_000_000);
+                    if let Some(steps) = task.rayo_steps {
+                        self.rayo_steps = steps;
                         self.calibration_done = true;
                     }
                     self.status = task.message;
@@ -197,7 +208,7 @@ impl eframe::App for AppState {
                         let dialog = FileDialog::new();
                         let picked = match self.operation {
                             Operation::Encrypt => dialog.pick_file(),
-                            Operation::Decrypt => dialog.add_filter("GoogolCypher", &["acyph"]).pick_file(),
+                            Operation::Decrypt => dialog.add_filter("AleksCypher", &["acyph", "png"]).pick_file(),
                         };
                         if let Some(path) = picked {
                             self.file_path = Some(path);
@@ -211,6 +222,23 @@ impl eframe::App for AppState {
                 ui.label("🔑 Пароль:");
                 ui.add(egui::TextEdit::singleline(&mut self.password).password(true));
             });
+
+            ui.add_space(5.0);
+            ui.checkbox(&mut self.use_stego, "🖼️ Стеганография (спрятать в PNG)");
+            if self.use_stego {
+                ui.horizontal(|ui| {
+                    if let Some(ref path) = self.stego_path {
+                        ui.label(format!("Контейнер: {}", path.file_name().unwrap_or_default().to_string_lossy()));
+                    } else {
+                        ui.label("PNG не выбран");
+                    }
+                    if ui.button("📁 Выбрать PNG").clicked() {
+                        if let Some(path) = FileDialog::new().add_filter("PNG", &["png"]).pick_file() {
+                            self.stego_path = Some(path);
+                        }
+                    }
+                });
+            }
 
             if self.operation == Operation::Encrypt {
                 ui.add_space(5.0);
@@ -231,8 +259,6 @@ impl eframe::App for AppState {
                             ui.selectable_value(&mut self.padding_level, 3, "Параноидальное (1M-128M)");
                         });
                 });
-                ui.add_space(5.0);
-                ui.checkbox(&mut self.anti_replay, "🛡️ Anti-replay защита");
             }
             ui.add_space(8.0);
 
@@ -245,53 +271,124 @@ impl eframe::App for AppState {
             ).clicked();
 
             if clicked {
-                let file = self.file_path.clone().unwrap();
-                let password_bytes = Zeroizing::new(self.password.as_bytes().to_vec());
-                self.password.clear();
-                self.password.zeroize();
+                if self.use_stego && self.stego_path.is_none() {
+                    self.status = "❌ Выберите PNG для стеганографии".to_owned();
+                    self.status_color = Color32::RED;
+                } else {
+                    let file = self.file_path.clone().unwrap();
+                    let pass = self.password.as_bytes().to_vec();
+                    let pass_stego = pass.clone();
+                    self.password.clear();
+                    self.password.zeroize();
 
-                let pending = self.pending_result.clone();
-                let operation = self.operation.clone();
-                let anti_replay = self.anti_replay;
-                let padding_level = self.padding_level;
-                let rayo_steps = self.rayo_steps;
-                self.status = "⚡ Deriving key with Rayo machine...".to_owned();
-                self.status_color = Color32::from_rgb(255, 165, 0);
-                self.progress = 0.01;
+                    let pending = self.pending_result.clone();
+                    let operation = self.operation.clone();
+                    let padding_level = self.padding_level;
+                    let rayo_steps = self.rayo_steps;
+                    let use_stego = self.use_stego;
+                    let stego_path = self.stego_path.clone();
+                    self.status = "⚡ Deriving key with Rayo machine...".to_owned();
+                    self.status_color = Color32::from_rgb(255, 165, 0);
+                    self.progress = 0.01;
 
-                thread::spawn(move || {
-                    let result = match operation {
-                        Operation::Encrypt => {
-                            let out = file.with_extension("acyph");
-                            match encrypt_file(&file, &out, &password_bytes, anti_replay, padding_level, rayo_steps) {
-                                Ok(()) => Ok(TaskResult {
-                                    message: format!("✔ Зашифровано: {}", out.display()),
-                                    preview: String::new(),
-                                }),
-                                Err(e) => Err(format!("❌ Ошибка: {}", e)),
+                    thread::spawn(move || {
+                        let password_buf = match ProtectedBuffer::new(pass) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                *pending.lock().unwrap() = Some(Err(format!("❌ Memory lock error: {}", e)));
+                                return;
                             }
-                        }
-                        Operation::Decrypt => {
-                            let mut out = file.clone();
-                            if out.extension().map(|e| e == "acyph").unwrap_or(false) {
-                                out.set_extension("");
-                            } else { out.set_extension("decrypted"); }
-                            match decrypt_file(&file, &out, &password_bytes) {
-                                Ok(()) => {
-                                    let prev = std::fs::read_to_string(&out)
-                                        .unwrap_or_else(|_| String::new())
-                                        .chars().take(200).collect();
-                                    Ok(TaskResult {
-                                        message: format!("✔ Расшифровано: {}", out.display()),
-                                        preview: prev,
-                                    })
+                        };
+                        let password_buf_stego = match ProtectedBuffer::new(pass_stego) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                *pending.lock().unwrap() = Some(Err(format!("❌ Memory lock error: {}", e)));
+                                return;
+                            }
+                        };
+
+                        let result = match operation {
+                            Operation::Encrypt => {
+                                let tmp = file.with_extension("acyph");
+                                match encrypt_file(&file, &tmp, password_buf, padding_level, rayo_steps) {
+                                    Ok(()) => {
+                                        if use_stego {
+                                            let png_path = stego_path.unwrap();
+                                            let acyph_data = std::fs::read(&tmp).unwrap();
+                                            let png_data = std::fs::read(&png_path).unwrap();
+                                            let hidden = stego::hide_data_in_png(&png_data, &acyph_data, password_buf_stego.as_slice());
+                                            let _ = std::fs::remove_file(&tmp);
+                                            match hidden {
+                                                Ok(data) => {
+                                                    let out = tmp.with_extension("png");
+                                                    std::fs::write(&out, data).unwrap();
+                                                    Ok(TaskResult {
+                                                        message: format!("✔ Зашифровано + стего: {}", out.display()),
+                                                        preview: String::new(),
+                                                        rayo_steps: None,
+                                                    })
+                                                },
+                                                Err(e) => Err(format!("❌ Стего ошибка: {}", e)),
+                                            }
+                                        } else {
+                                            Ok(TaskResult {
+                                                message: format!("✔ Зашифровано: {}", tmp.display()),
+                                                preview: String::new(),
+                                                rayo_steps: None,
+                                            })
+                                        }
+                                    },
+                                    Err(e) => Err(format!("❌ Ошибка: {}", e)),
                                 }
-                                Err(e) => Err(format!("❌ Ошибка: {}", e)),
                             }
-                        }
-                    };
-                    *pending.lock().unwrap() = Some(result);
-                });
+                            Operation::Decrypt => {
+                                let mut out = file.clone();
+                                if use_stego {
+                                    let png_data = std::fs::read(&file).unwrap();
+                                    let acyph_data = stego::extract_data_from_png(&png_data, password_buf_stego.as_slice());
+                                    match acyph_data {
+                                        Ok(data) => {
+                                            let acyph_path = file.with_extension("acyph");
+                                            std::fs::write(&acyph_path, data).unwrap();
+                                            if out.extension().map(|e| e == "acyph").unwrap_or(false) {
+                                                out.set_extension("");
+                                            } else { out.set_extension("decrypted"); }
+                                            match decrypt_file(&acyph_path, &out, password_buf) {
+                                                Ok(()) => {
+                                                    let _ = std::fs::remove_file(&acyph_path);
+                                                    let prev = std::fs::read_to_string(&out).unwrap_or_else(|_| String::new()).chars().take(200).collect();
+                                                    Ok(TaskResult {
+                                                        message: format!("✔ Расшифровано: {}", out.display()),
+                                                        preview: prev,
+                                                        rayo_steps: None,
+                                                    })
+                                                },
+                                                Err(e) => Err(format!("❌ Ошибка: {}", e)),
+                                            }
+                                        },
+                                        Err(e) => Err(format!("❌ Стего ошибка: {}", e)),
+                                    }
+                                } else {
+                                    if out.extension().map(|e| e == "acyph").unwrap_or(false) {
+                                        out.set_extension("");
+                                    } else { out.set_extension("decrypted"); }
+                                    match decrypt_file(&file, &out, password_buf) {
+                                        Ok(()) => {
+                                            let prev = std::fs::read_to_string(&out).unwrap_or_else(|_| String::new()).chars().take(200).collect();
+                                            Ok(TaskResult {
+                                                message: format!("✔ Расшифровано: {}", out.display()),
+                                                preview: prev,
+                                                rayo_steps: None,
+                                            })
+                                        },
+                                        Err(e) => Err(format!("❌ Ошибка: {}", e)),
+                                    }
+                                }
+                            }
+                        };
+                        *pending.lock().unwrap() = Some(result);
+                    });
+                }
             }
 
             if self.progress > 0.0 && self.progress < 1.0 {
@@ -320,7 +417,7 @@ impl eframe::App for AppState {
         egui::TopBottomPanel::bottom("copyright").min_height(20.0).show(ctx, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    egui::RichText::new("© 2026 AlekssusDev – Licensed under GNU GPL v3")
+                    egui::RichText::new("© 2026 AlekssusDev")
                         .font(egui::FontId::monospace(10.0))
                         .color(Color32::from_rgb(186, 85, 211))
                 );
